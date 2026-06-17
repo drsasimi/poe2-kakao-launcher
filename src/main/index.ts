@@ -52,7 +52,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (url.startsWith('daumgamestarter://')) {
+    if (url.startsWith('KakaogamesStarter://')) {
       // Origin Event Cancel
       event.preventDefault()
 
