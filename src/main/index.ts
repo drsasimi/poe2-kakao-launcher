@@ -34,7 +34,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    if (details.url.includes('game.daum.net')) {
+    if (details.url.includes('kakaogames.com')) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
@@ -62,7 +62,7 @@ function createWindow(): void {
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
-  mainWindow.loadURL('https://pathofexile2.game.daum.net')
+  mainWindow.loadURL('https://pathofexile2.kakaogames.com')
 }
 
 // This method will be called when Electron has finished

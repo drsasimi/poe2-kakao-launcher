@@ -1,6 +1,6 @@
 {
   "name": "poe2-kakao-launcher",
-  "version": "v0.1.8",
+  "version": "v0.1.9",
   "description": "Path of Exile 2 Kakao Launcher",
   "main": "./out/main/index.js",
   "author": "Sanghyeon Lee",
