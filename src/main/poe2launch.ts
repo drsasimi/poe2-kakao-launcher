@@ -6,7 +6,7 @@ import { download, CancelError } from 'electron-dl'
 
 export function poe2Launch(win: BrowserWindow, url: string): void {
   // Url Unescape
-  const unescapedUrl = decodeURIComponent(url).replace('KakaogamesStarter://', '')
+  const unescapedUrl = decodeURIComponent(url).replace('kakaogamesStarter://', '')
   console.log('Unescaped Url:', unescapedUrl)
 
   // '|' Split
