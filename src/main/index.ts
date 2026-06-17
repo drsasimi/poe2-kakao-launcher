@@ -56,7 +56,7 @@ function createWindow(): void {
       // Origin Event Cancel
       event.preventDefault()
 
-      poe2Launch(mainWindow, url)
+      void poe2Launch(mainWindow, url)
     }
   })
 

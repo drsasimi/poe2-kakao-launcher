@@ -4,7 +4,25 @@ import { spawn } from 'child_process'
 import * as path from 'path'
 import { download, CancelError } from 'electron-dl'
 
-export function poe2Launch(win: BrowserWindow, url: string): void {
+const POE2_INSTALL_PATH_CONFIG = 'poe2-install-path.json'
+const POE2_DRIVE_LETTERS = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('')
+const POE2_FAST_SCAN_DRIVE_LETTERS = POE2_DRIVE_LETTERS.filter((drive) => drive !== 'Z')
+const POE2_INSTALL_PATH_SUFFIXES = [
+  'Kakaogames\\Path of Exile2',
+  'kakaogames\\Path of Exile2',
+  'Daum Games\\Path of Exile2',
+  'Kakao Games\\Path of Exile2'
+]
+const POE2_FAST_SCAN_CHILD_PATHS = [
+  '',
+  'Path of Exile2',
+  'Kakaogames\\Path of Exile2',
+  'kakaogames\\Path of Exile2',
+  'Daum Games\\Path of Exile2',
+  'Kakao Games\\Path of Exile2'
+]
+
+export async function poe2Launch(win: BrowserWindow, url: string): Promise<void> {
   // Url Unescape
   const unescapedUrl = decodeURIComponent(url).replace('kakaogamesstarter://', '')
   console.log('Unescaped Url:', unescapedUrl)
@@ -17,10 +35,10 @@ export function poe2Launch(win: BrowserWindow, url: string): void {
   console.log('Token:', token)
   console.log('User Code:', userCode)
 
-  const gamePath = 'C:\\Daum Games\\Path of Exile2'
   const executeKakao64 = 'PathOfExile_x64_KG.exe'
+  const gamePath = await resolvePoe2InstallPath(win, executeKakao64)
 
-  if (poe2IsInstalled(executeKakao64)) {
+  if (gamePath) {
     dialog
       .showMessageBox(win, {
         type: 'question',
@@ -31,12 +49,12 @@ export function poe2Launch(win: BrowserWindow, url: string): void {
       })
       .then((response) => {
         if (response.response === 0) {
-          spawn(`${path.join(gamePath, executeKakao64)}`, ['--kakao', token, userCode], {
+          spawn(`${path.win32.join(gamePath, executeKakao64)}`, ['--kakao', token, userCode], {
             cwd: gamePath
           })
         }
         if (response.response === 1) {
-          spawn(`${path.join(gamePath, executeKakao64)}`, {
+          spawn(`${path.win32.join(gamePath, executeKakao64)}`, {
             cwd: gamePath
           })
         }
@@ -64,40 +82,200 @@ export function poe2Launch(win: BrowserWindow, url: string): void {
         //     })
         // }
       })
-  } else {
-    // 설치
-    poe2Setup(win)
-      .then(() => {
-        // 완료 메시지 출력
-        dialog.showMessageBox(win, {
-          type: 'info',
-          title: 'Path of Exile 2',
-          message: '설치 프로그램이 표시될것입니다. 설치 완료 후 게임 시작 버튼을 다시 클릭하세요'
-        })
-      })
-      .catch((error) => {
-        // 에러 메시지 출력
-        dialog.showMessageBox(win, {
-          type: 'error',
-          title: 'Path of Exile 2',
-          message: '설치 중 오류가 발생했습니다. 다시 시도해주세요\n\n' + error.message
-        })
-      })
   }
 }
 
-function poe2IsInstalled(execute: string): boolean {
-  // 기본 경로에서 설치되어 있는지 여부를 확인
-  // C:\Daum Games\Path of Exile2
-  const installPath = 'C:\\Daum Games\\Path of Exile2'
+async function resolvePoe2InstallPath(win: BrowserWindow, execute: string): Promise<string | null> {
+  const gamePath = findPoe2InstallPath(execute)
 
-  // 해당 경로에 execute 파일이 있는지 확인
-  if (fs.existsSync(path.join(installPath, execute))) {
-    return true
+  if (gamePath) {
+    return gamePath
+  }
+
+  const response = await dialog.showMessageBox(win, {
+    type: 'question',
+    buttons: ['실행 파일 선택', '설치 프로그램 실행', '취소'],
+    defaultId: 0,
+    cancelId: 2,
+    title: 'Path of Exile 2',
+    message: 'Path of Exile 2 설치 경로를 찾지 못했습니다.',
+    detail: `${execute} 파일을 직접 선택하면 다음 실행부터 해당 경로를 사용합니다.`
+  })
+
+  if (response.response === 0) {
+    return selectPoe2InstallPath(win, execute)
+  }
+
+  if (response.response === 1) {
+    try {
+      await poe2Setup(win)
+      dialog.showMessageBox(win, {
+        type: 'info',
+        title: 'Path of Exile 2',
+        message: '설치 프로그램이 표시될것입니다. 설치 완료 후 게임 시작 버튼을 다시 클릭하세요'
+      })
+    } catch (error) {
+      dialog.showMessageBox(win, {
+        type: 'error',
+        title: 'Path of Exile 2',
+        message: '설치 중 오류가 발생했습니다. 다시 시도해주세요\n\n' + getErrorMessage(error)
+      })
+    }
+  }
+
+  return null
+}
+
+function findPoe2InstallPath(execute: string): string | null {
+  const cachedInstallPath = readCachedPoe2InstallPath(execute)
+  if (cachedInstallPath) {
+    console.log('Found Path of Exile 2 at cached install path:', cachedInstallPath)
+    return cachedInstallPath
+  }
+
+  for (const installPath of getKnownPoe2InstallPaths()) {
+    if (isPoe2InstallPath(installPath, execute)) {
+      console.log('Found Path of Exile 2 at known install path:', installPath)
+      return installPath
+    }
+  }
+
+  for (const drive of POE2_FAST_SCAN_DRIVE_LETTERS) {
+    const driveRoot = getDriveRoot(drive)
+    try {
+      if (!fs.existsSync(driveRoot)) {
+        continue
+      }
+
+      const entries = fs.readdirSync(driveRoot, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory()) {
+          continue
+        }
+
+        const foundPath = findPoe2InstallPathInFirstLevelDirectory(driveRoot, entry.name, execute)
+        if (foundPath) {
+          console.log(`Found Path of Exile 2 in ${drive}:`, foundPath)
+          return foundPath
+        }
+      }
+    } catch (error) {
+      console.warn(`Unable to scan ${driveRoot}:`, error)
+    }
   }
 
   console.log('Path of Exile 2 is not installed')
-  return false
+  return null
+}
+
+function getKnownPoe2InstallPaths(): string[] {
+  return POE2_DRIVE_LETTERS.flatMap((drive) =>
+    POE2_INSTALL_PATH_SUFFIXES.map((suffix) => path.win32.join(getDriveRoot(drive), suffix))
+  )
+}
+
+function getDriveRoot(drive: string): string {
+  return `${drive}:\\`
+}
+
+function findPoe2InstallPathInFirstLevelDirectory(
+  driveRoot: string,
+  directoryName: string,
+  execute: string
+): string | null {
+  for (const childPath of POE2_FAST_SCAN_CHILD_PATHS) {
+    const installPath = path.win32.join(driveRoot, directoryName, childPath)
+    if (isPoe2InstallPath(installPath, execute)) {
+      return installPath
+    }
+  }
+
+  return null
+}
+
+function isPoe2InstallPath(installPath: string, execute: string): boolean {
+  return fs.existsSync(path.win32.join(installPath, execute))
+}
+
+function readCachedPoe2InstallPath(execute: string): string | null {
+  try {
+    const config = JSON.parse(fs.readFileSync(getPoe2InstallPathConfigPath(), 'utf-8'))
+    if (typeof config.installPath !== 'string') {
+      return null
+    }
+
+    if (isPoe2InstallPath(config.installPath, execute)) {
+      return config.installPath
+    }
+
+    console.warn('Cached Path of Exile 2 install path is invalid:', config.installPath)
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return null
+    }
+
+    console.warn('Unable to read Path of Exile 2 install path config:', error)
+  }
+
+  return null
+}
+
+function saveCachedPoe2InstallPath(installPath: string): void {
+  const configPath = getPoe2InstallPathConfigPath()
+  fs.mkdirSync(path.dirname(configPath), { recursive: true })
+  fs.writeFileSync(configPath, JSON.stringify({ installPath }, null, 2))
+}
+
+function getPoe2InstallPathConfigPath(): string {
+  return path.join(app.getPath('userData'), POE2_INSTALL_PATH_CONFIG)
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+async function selectPoe2InstallPath(win: BrowserWindow, execute: string): Promise<string | null> {
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    filters: [{ name: 'Path of Exile 2 실행 파일', extensions: ['exe'] }],
+    title: 'Path of Exile 2 실행 파일 선택',
+    buttonLabel: '선택',
+    defaultPath: path.win32.join('C:\\Kakaogames\\Path of Exile2', execute)
+  })
+
+  const selectedPath = (result.filePaths && result.filePaths[0]) || ''
+  if (result.canceled || selectedPath === '') {
+    return null
+  }
+
+  const selectedFileName = path.win32.basename(selectedPath).toLowerCase()
+  if (selectedFileName !== execute.toLowerCase()) {
+    await dialog.showMessageBox(win, {
+      type: 'error',
+      title: 'Path of Exile 2',
+      message: `${execute} 파일을 선택해주세요.`
+    })
+    return null
+  }
+
+  const installPath = path.win32.dirname(selectedPath)
+  if (!isPoe2InstallPath(installPath, execute)) {
+    await dialog.showMessageBox(win, {
+      type: 'error',
+      title: 'Path of Exile 2',
+      message: '선택한 실행 파일을 확인할 수 없습니다.'
+    })
+    return null
+  }
+
+  try {
+    saveCachedPoe2InstallPath(installPath)
+    console.log('Saved Path of Exile 2 install path:', installPath)
+  } catch (error) {
+    console.warn('Unable to save Path of Exile 2 install path config:', error)
+  }
+
+  return installPath
 }
 
 async function poe2Setup(win: BrowserWindow): Promise<void> {
